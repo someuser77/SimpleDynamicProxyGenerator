@@ -139,7 +139,7 @@ namespace ConsoleApplication1
 
             ILGenerator ilGenerator = constructorBuilder.GetILGenerator();
 
-            TypeGenerator.AddBaseConstructorCall(ilGenerator);
+            TypeGenerator.AddEmptyObjectConstructorCall(ilGenerator);
 
             NewExpression baseTypeConstructorCall = GetConstructorInvocationExpression(constructorInfo);
             
@@ -317,6 +317,7 @@ namespace ConsoleApplication1
     {
         protected readonly ModuleBuilder mModuleBuilder;
         protected readonly string mTypeName;
+        protected static readonly MethodAttributes GetSetAttributes = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual | MethodAttributes.Final;
 
         public TypeGenerator(string typeName, ModuleBuilder moduleBuilder)
         {
@@ -326,12 +327,17 @@ namespace ConsoleApplication1
 
         public abstract Type Create();
 
-        public static void AddBaseConstructorCall(ILGenerator ilGenerator)
+        public static void AddEmptyObjectConstructorCall(ILGenerator ilGenerator)
         {
             ConstructorInfo mObjectBaseConstructor = typeof(object).GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Call, mObjectBaseConstructor);
         }
+        /*
+        public static MethodBuilder AddPropertyGetter(ILGenerator ilGenerator, PropertyBuilder property, FieldBuilder backingField)
+        {
+
+        } */
     }
 
     internal class ArgumentContainerTypeGenerator : TypeGenerator
@@ -457,7 +463,7 @@ namespace ConsoleApplication1
         {
             ConstructorBuilder constructorBuilder = typeBuilder.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, new Type[] { mTargetInstanceType, mArgumentContainerType });
             ILGenerator ilGenerator = constructorBuilder.GetILGenerator();
-            TypeGenerator.AddBaseConstructorCall(ilGenerator);
+            TypeGenerator.AddEmptyObjectConstructorCall(ilGenerator);
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Ldarg_1);
             ilGenerator.Emit(OpCodes.Stfld, targetInstance);
