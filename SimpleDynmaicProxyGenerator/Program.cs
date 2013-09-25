@@ -333,11 +333,57 @@ namespace ConsoleApplication1
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Call, mObjectBaseConstructor);
         }
-        /*
-        public static MethodBuilder AddPropertyGetter(ILGenerator ilGenerator, PropertyBuilder property, FieldBuilder backingField)
-        {
 
-        } */
+        public class PropertyBuilders
+        {
+            public FieldBuilder BackingField { get; set; }
+            public MethodBuilder Getter { get; set; }
+            public MethodBuilder Setter { get; set; }
+        }
+
+        public static PropertyBuilders AddProperty(TypeBuilder typeBuilder, string memberName, string propertyName, Type propertyType)
+        {
+            FieldBuilder field = typeBuilder.DefineField(memberName, propertyType, FieldAttributes.Private);
+
+            PropertyBuilder property = typeBuilder.DefineProperty(propertyName, PropertyAttributes.HasDefault, propertyType, Type.EmptyTypes);
+
+            MethodBuilder getter = AddPropertyGetter(typeBuilder, property, field);
+            
+            MethodBuilder setter = AddPropertySetter(typeBuilder, property, field);
+
+            return new PropertyBuilders { BackingField = field, Getter = getter, Setter = setter };
+        }
+
+        public static MethodBuilder AddPropertyGetter(TypeBuilder typeBuilder, PropertyBuilder property, FieldBuilder backingField)
+        {
+            MethodBuilder getPropertyMethodBuilder = typeBuilder.DefineMethod("get_" + property.Name, GetSetAttributes, property.PropertyType, Type.EmptyTypes);
+
+            ILGenerator ilGenerator = getPropertyMethodBuilder.GetILGenerator();
+
+            ilGenerator.Emit(OpCodes.Ldarg_0);
+            ilGenerator.Emit(OpCodes.Ldfld, backingField);
+            ilGenerator.Emit(OpCodes.Ret);
+
+            property.SetGetMethod(getPropertyMethodBuilder);
+
+            return getPropertyMethodBuilder;
+        }
+
+        public static MethodBuilder AddPropertySetter(TypeBuilder typeBuilder, PropertyBuilder property, FieldBuilder backingField)
+        {
+            MethodBuilder setPropertyMethodBuilder = typeBuilder.DefineMethod("set_" + property.Name, GetSetAttributes, null, new Type[] { property.PropertyType });
+
+            ILGenerator ilGenerator = setPropertyMethodBuilder.GetILGenerator();
+
+            ilGenerator.Emit(OpCodes.Ldarg_0);
+            ilGenerator.Emit(OpCodes.Ldarg_1);
+            ilGenerator.Emit(OpCodes.Stfld, backingField);
+            ilGenerator.Emit(OpCodes.Ret);
+
+            property.SetSetMethod(setPropertyMethodBuilder);
+
+            return setPropertyMethodBuilder;
+        }
     }
 
     internal class ArgumentContainerTypeGenerator : TypeGenerator
@@ -399,10 +445,11 @@ namespace ConsoleApplication1
             
             AddConstructor(typeBuilder, targetInstance, argumentContainer);
 
-            Tuple<MethodBuilder, MethodBuilder, FieldBuilder> property = AddReturnTypeAutoImplementedProperty(typeBuilder, typeof(object));
-            FieldBuilder propertyBackingField = property.Item3;
-            typeBuilder.DefineMethodOverride(property.Item1, typeof(IInterceptionStub).GetMethod("get_ReturnValue"));
-            typeBuilder.DefineMethodOverride(property.Item2, typeof(IInterceptionStub).GetMethod("set_ReturnValue"));
+            PropertyBuilders property = AddReturnTypeAutoImplementedProperty(typeBuilder, typeof(object));
+            FieldBuilder propertyBackingField = property.BackingField;
+
+            typeBuilder.DefineMethodOverride(property.Getter, typeof(IInterceptionStub).GetMethod("get_ReturnValue"));
+            typeBuilder.DefineMethodOverride(property.Setter, typeof(IInterceptionStub).GetMethod("set_ReturnValue"));
 
             MethodAttributes methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual | MethodAttributes.Final;
             MethodBuilder method = typeBuilder.DefineMethod("Proceed", methodAttributes, CallingConventions.Standard | CallingConventions.HasThis, null, Type.EmptyTypes);
@@ -473,42 +520,9 @@ namespace ConsoleApplication1
             ilGenerator.Emit(OpCodes.Ret);
         }
 
-        private Tuple<MethodBuilder, MethodBuilder, FieldBuilder> AddReturnTypeAutoImplementedProperty(TypeBuilder typeBuilder, Type propertyType)
+        private PropertyBuilders AddReturnTypeAutoImplementedProperty(TypeBuilder typeBuilder, Type propertyType)
         {
-            FieldBuilder customerNameBldr = typeBuilder.DefineField("returnValue", propertyType, FieldAttributes.Private);
-
-            PropertyBuilder custNamePropBldr = typeBuilder.DefineProperty("ReturnValue", PropertyAttributes.HasDefault, propertyType, Type.EmptyTypes);
-
-            // The property set and property get property require a special 
-            // set of attributes.
-            
-            MethodAttributes getSetAttributes = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual | MethodAttributes.Final;
-
-            MethodBuilder custNameGetPropMthdBldr = typeBuilder.DefineMethod("get_ReturnValue", getSetAttributes, propertyType, Type.EmptyTypes);
-
-            ILGenerator custNameGetIL = custNameGetPropMthdBldr.GetILGenerator();
-
-            custNameGetIL.Emit(OpCodes.Ldarg_0);
-            custNameGetIL.Emit(OpCodes.Ldfld, customerNameBldr);
-            custNameGetIL.Emit(OpCodes.Ret);
-
-            // Define the "set" accessor method for CustomerName.
-            MethodBuilder custNameSetPropMthdBldr = typeBuilder.DefineMethod("set_ReturnValue", getSetAttributes, null, new Type[] { propertyType });
-
-            ILGenerator custNameSetIL = custNameSetPropMthdBldr.GetILGenerator();
-
-            custNameSetIL.Emit(OpCodes.Ldarg_0);
-            custNameSetIL.Emit(OpCodes.Ldarg_1);
-            custNameSetIL.Emit(OpCodes.Stfld, customerNameBldr);
-            custNameSetIL.Emit(OpCodes.Ret);
-
-            // Last, we must map the two property created above to our PropertyBuilder to  
-            // their corresponding behaviors, "get" and "set" respectively. 
-            custNamePropBldr.SetGetMethod(custNameGetPropMthdBldr);
-            custNamePropBldr.SetSetMethod(custNameSetPropMthdBldr);
-
-            return new Tuple<MethodBuilder, MethodBuilder, FieldBuilder>(custNameGetPropMthdBldr, custNameSetPropMthdBldr, customerNameBldr);
-
+            return AddProperty(typeBuilder, "returnValue", "ReturnValue", propertyType);
         }
 
     }
