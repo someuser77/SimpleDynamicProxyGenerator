@@ -14,7 +14,7 @@ namespace ConsoleApplication1
         {
             IPerson person = InterceptorFactory.GetInstanceByConstructor<IPerson, Person>("jhon", 9);
             person.SetAge(10);
-            person.GetAge();
+            Console.WriteLine(person.GetAge());
         }
     }
 
@@ -223,39 +223,43 @@ namespace ConsoleApplication1
             IInterceptionStubImplementationTypeGenerator interceptionStubTypeGenerator = new IInterceptionStubImplementationTypeGenerator(method, originalLocalTypeField.FieldType, argumentContainerType, ModuleBuilder);
             Type interceptorStubType = interceptionStubTypeGenerator.Create();
 
-            MethodInfo interceptionMethod = interceptorStubType.GetMethod("Proceed");
+            MethodInfo interceptionMethod = typeof(MethodInterceptor).GetMethod("Intercept");
 
             ILGenerator ilGenerator = methodBuilder.GetILGenerator();
 
-            LocalBuilder argumentContainerField = ilGenerator.DeclareLocal(argumentContainerType);
+            LocalBuilder argumentContainerLocal = ilGenerator.DeclareLocal(argumentContainerType);
+            LocalBuilder interceptorStubLocal = ilGenerator.DeclareLocal(typeof(IInterceptionStub));
 
-            CopyParametersToArgumentContainer(ilGenerator, argumentContainerType, argumentContainerField, method);
-
-            
-            
-            
-            //Func<IDictionary<string, Func<MethodInterceptor>>, string, Func<MethodInterceptor>> selector = GetInterceptorSelector();
+            CopyParametersToArgumentContainer(ilGenerator, argumentContainerType, argumentContainerLocal, method);
 
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Ldfld, interceptorsMapField);
             ilGenerator.Emit(OpCodes.Ldstr, method.Name);
             ilGenerator.Emit(OpCodes.Callvirt, typeof(IDictionary<string, MethodInterceptor>).GetMethod("get_Item"));
-            
-
-
 
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Ldfld, originalLocalTypeField);
 
-            ilGenerator.Emit(OpCodes.Ldloc, argumentContainerField);
+            ilGenerator.Emit(OpCodes.Ldloc, argumentContainerLocal);
             
 
             ConstructorInfo interceptorStubTypeConstructor = interceptorStubType.GetConstructor(new Type[] { originalLocalTypeField.FieldType, argumentContainerType });
             ilGenerator.Emit(OpCodes.Newobj, interceptorStubTypeConstructor);
+            ilGenerator.Emit(OpCodes.Stloc, interceptorStubLocal);
+            ilGenerator.Emit(OpCodes.Ldloc, interceptorStubLocal);
+            ilGenerator.Emit(OpCodes.Callvirt, interceptionMethod);
 
-            ilGenerator.Emit(OpCodes.Callvirt, typeof(MethodInterceptor).GetMethod("Intercept"));
-            //ilGenerator.Emit(OpCodes.Callvirt, interceptionMethod);
+            if (method.ReturnType != typeof(void))
+            {
+                
+                ilGenerator.Emit(OpCodes.Ldloc, interceptorStubLocal);
+                ilGenerator.Emit(OpCodes.Callvirt, typeof(IInterceptionStub).GetMethod("get_ReturnValue"));
+                if (method.ReturnType.IsValueType)
+                {
+                    ilGenerator.Emit(OpCodes.Unbox_Any, method.ReturnType);
+                }
 
+            }
             // get method interceptor instance
             
 
@@ -410,13 +414,23 @@ namespace ConsoleApplication1
             
             AddConstructor(typeBuilder, targetInstance, argumentContainer);
 
+            Tuple<MethodBuilder, MethodBuilder, FieldBuilder> property = AddReturnTypeAutoImplementedProperty(typeBuilder, typeof(object));
+            FieldBuilder propertyBackingField = property.Item3;
+            typeBuilder.DefineMethodOverride(property.Item1, typeof(IInterceptionStub).GetMethod("get_ReturnValue"));
+            typeBuilder.DefineMethodOverride(property.Item2, typeof(IInterceptionStub).GetMethod("set_ReturnValue"));
 
             MethodAttributes methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual | MethodAttributes.Final;
-            MethodBuilder method = typeBuilder.DefineMethod("Proceed", methodAttributes, CallingConventions.Standard | CallingConventions.HasThis, typeof(object), Type.EmptyTypes);
+            MethodBuilder method = typeBuilder.DefineMethod("Proceed", methodAttributes, CallingConventions.Standard | CallingConventions.HasThis, null, Type.EmptyTypes);
             
             typeBuilder.DefineMethodOverride(method, typeof(IInterceptionStub).GetMethod("Proceed"));
 
             ilGenerator = method.GetILGenerator();
+
+            LocalBuilder returnTypeLocalVariable = null;
+            if (mMethod.ReturnType != typeof(void))
+            {
+                returnTypeLocalVariable = ilGenerator.DeclareLocal(mMethod.ReturnType);
+            }
             
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Ldfld, targetInstance);
@@ -430,15 +444,30 @@ namespace ConsoleApplication1
             }
 
             ilGenerator.Emit(OpCodes.Callvirt, mMethod);
+            
+            if (mMethod.ReturnType != typeof(void))
+            {
+                ilGenerator.Emit(OpCodes.Stloc, returnTypeLocalVariable);
+            }
 
+            ilGenerator.Emit(OpCodes.Ldarg_0);
+            
             if (mMethod.ReturnType == typeof(void))
             {
                 ilGenerator.Emit(OpCodes.Ldnull);
             }
-            else if (mMethod.ReturnType.IsValueType)
+            else
             {
-                ilGenerator.Emit(OpCodes.Box, mMethod.ReturnType);
+                ilGenerator.Emit(OpCodes.Ldloc, returnTypeLocalVariable);
+
+                if (mMethod.ReturnType.IsValueType)
+                {
+                    ilGenerator.Emit(OpCodes.Box, mMethod.ReturnType);
+                }
             }
+
+            ilGenerator.Emit(OpCodes.Stfld, propertyBackingField);
+            
             ilGenerator.Emit(OpCodes.Ret);
             
             Type type = typeBuilder.CreateType();
@@ -457,6 +486,44 @@ namespace ConsoleApplication1
             ilGenerator.Emit(OpCodes.Ldarg_2);
             ilGenerator.Emit(OpCodes.Stfld, argumentContainer);
             ilGenerator.Emit(OpCodes.Ret);
+        }
+
+        private Tuple<MethodBuilder, MethodBuilder, FieldBuilder> AddReturnTypeAutoImplementedProperty(TypeBuilder typeBuilder, Type propertyType)
+        {
+            FieldBuilder customerNameBldr = typeBuilder.DefineField("returnValue", propertyType, FieldAttributes.Private);
+
+            PropertyBuilder custNamePropBldr = typeBuilder.DefineProperty("ReturnValue", PropertyAttributes.HasDefault, propertyType, Type.EmptyTypes);
+
+            // The property set and property get property require a special 
+            // set of attributes.
+            
+            MethodAttributes getSetAttributes = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual | MethodAttributes.Final;
+
+            MethodBuilder custNameGetPropMthdBldr = typeBuilder.DefineMethod("get_ReturnValue", getSetAttributes, propertyType, Type.EmptyTypes);
+
+            ILGenerator custNameGetIL = custNameGetPropMthdBldr.GetILGenerator();
+
+            custNameGetIL.Emit(OpCodes.Ldarg_0);
+            custNameGetIL.Emit(OpCodes.Ldfld, customerNameBldr);
+            custNameGetIL.Emit(OpCodes.Ret);
+
+            // Define the "set" accessor method for CustomerName.
+            MethodBuilder custNameSetPropMthdBldr = typeBuilder.DefineMethod("set_ReturnValue", getSetAttributes, null, new Type[] { propertyType });
+
+            ILGenerator custNameSetIL = custNameSetPropMthdBldr.GetILGenerator();
+
+            custNameSetIL.Emit(OpCodes.Ldarg_0);
+            custNameSetIL.Emit(OpCodes.Ldarg_1);
+            custNameSetIL.Emit(OpCodes.Stfld, customerNameBldr);
+            custNameSetIL.Emit(OpCodes.Ret);
+
+            // Last, we must map the two property created above to our PropertyBuilder to  
+            // their corresponding behaviors, "get" and "set" respectively. 
+            custNamePropBldr.SetGetMethod(custNameGetPropMthdBldr);
+            custNamePropBldr.SetSetMethod(custNameSetPropMthdBldr);
+
+            return new Tuple<MethodBuilder, MethodBuilder, FieldBuilder>(custNameGetPropMthdBldr, custNameSetPropMthdBldr, customerNameBldr);
+
         }
 
     }
@@ -481,11 +548,16 @@ namespace ConsoleApplication1
         Containter a = new Containter();
         IDictionary<string, Func<int, bool>> dic = new Dictionary<string, Func<int, bool>>();
 
+        public int Age { get; set; }
+
         public AnotherPerson(Person person)
         {
             _person = person;
 
             Console.WriteLine(dic["10"](2));
+
+            int xxx = (int)person.GetBoxedAge();
+            Console.WriteLine(xxx);
         }
 
         public void SetAge(int age)
@@ -493,6 +565,7 @@ namespace ConsoleApplication1
             _person.SetAge(a.a + a.b + a.c);
             _person.SetAge(a.a + a.b + a.c);
             _person.SetAge(a.a + a.b + a.c);
+            Age = age;
         }
 
         public int GetAge()
@@ -523,6 +596,11 @@ namespace ConsoleApplication1
         {
             return mAge;
         }
+
+        public object GetBoxedAge()
+        {
+            return mAge;
+        }
     }
 
     [AttributeUsage(AttributeTargets.Method)]
@@ -531,13 +609,18 @@ namespace ConsoleApplication1
         public void Intercept(IInterceptionStub stub)
         {
             Console.WriteLine("Before method!!!");
-            object result = stub.Proceed();
+            stub.Proceed();
+            if (stub.ReturnValue != null)
+            {
+                stub.ReturnValue = (int)stub.ReturnValue + 1;
+            }
             Console.WriteLine("After method!!!");
         }
     }
 
     public interface IInterceptionStub
     {
-        object Proceed();
+        void Proceed();
+        object ReturnValue { get; set; }
     }
 }
