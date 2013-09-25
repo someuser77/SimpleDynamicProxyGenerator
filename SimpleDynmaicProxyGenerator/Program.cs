@@ -260,25 +260,7 @@ namespace ConsoleApplication1
                 }
 
             }
-            // get method interceptor instance
-            
 
-            //ilGenerator.Emit(OpCodes.Pop);
-
-
-            /* works */
-            /*
-            ilGenerator.Emit(OpCodes.Ldarg_0);
-            ilGenerator.Emit(OpCodes.Ldfld, originalLocalTypeField);
-            
-            for (int i = 1; i <= methodParameterTypes.Length; i++)
-            {
-                ilGenerator.Emit(OpCodes.Ldarg, i);
-            }
-
-            ilGenerator.Emit(OpCodes.Callvirt, method);
-            
-            */
             ilGenerator.Emit(OpCodes.Ret);
             
         }
@@ -333,15 +315,12 @@ namespace ConsoleApplication1
 
     internal abstract class TypeGenerator
     {
-        //protected readonly AssemblyBuilder mAssemblyBuilder;
         protected readonly ModuleBuilder mModuleBuilder;
         protected readonly string mTypeName;
 
         public TypeGenerator(string typeName, ModuleBuilder moduleBuilder)
         {
             mTypeName = typeName;
-            //mAssemblyBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(new AssemblyName(typeName + "TypesAssembly"), AssemblyBuilderAccess.Run | AssemblyBuilderAccess.Save);
-            //mModuleBuilder = mAssemblyBuilder.DefineDynamicModule(typeName + "TypesModule");
             mModuleBuilder = moduleBuilder;
         }
 
