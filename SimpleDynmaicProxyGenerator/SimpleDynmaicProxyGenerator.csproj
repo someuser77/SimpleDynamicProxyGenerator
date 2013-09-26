@@ -46,6 +46,7 @@
   <ItemGroup>
     <Compile Include="IInterceptionStub.cs" />
     <Compile Include="InterceptorFactory.cs" />
+    <Compile Include="MethodInterceptorBase.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="TypeGenerators\ArgumentContainerTypeGenerator.cs" />
