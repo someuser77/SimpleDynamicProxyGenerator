@@ -23,11 +23,11 @@ namespace SimpleDynamicProxyGenerator
 
             assemblyBuilder.Save("assembly.dll");
 
-            Type[] dynamicTypeConstructorArgumentTupes = TypeGenerator.GetArgumentsTypes(dynamicType.GetConstructors()[0]);
+            Type[] dynamicTypeConstructorArgumentTypes = TypeGenerator.GetArgumentsTypes(dynamicType.GetConstructors()[0]);
 
             IDictionary<string, MethodInterceptorBase> interceptorsMap = GetInterceptorsMap(typeof(TImplementation));
 
-            LambdaExpression lambda = GetInstanceCreationExpression<TInterface>(dynamicType, dynamicTypeConstructorArgumentTupes);
+            LambdaExpression lambda = GetInstanceCreationExpression<TInterface>(dynamicType, dynamicTypeConstructorArgumentTypes);
 
             Func<IDictionary<string, MethodInterceptorBase>, object[], TInterface> ctor = (Func<IDictionary<string, MethodInterceptorBase>, object[], TInterface>)lambda.Compile();
 
