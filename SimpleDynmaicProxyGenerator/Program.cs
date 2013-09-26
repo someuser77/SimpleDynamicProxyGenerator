@@ -38,25 +38,25 @@ namespace ConsoleApplication1
             
             Type[] dynamicTypeConstructorArgumentTupes = TypeGenerator.GetArgumentsTypes(dynamicType.GetConstructors()[0]);
 
-            IDictionary<string, MethodInterceptor> interceptorsMap = GetInterceptorsMap(typeof(TImplementation));
+            IDictionary<string, MethodInterceptorBase> interceptorsMap = GetInterceptorsMap(typeof(TImplementation));
 
             LambdaExpression lambda = GetInstanceCreationExpression<TInterface>(dynamicType, dynamicTypeConstructorArgumentTupes);
 
-            Func<IDictionary<string, MethodInterceptor>, object[], TInterface> ctor = (Func<IDictionary<string, MethodInterceptor>, object[], TInterface>)lambda.Compile();
+            Func<IDictionary<string, MethodInterceptorBase>, object[], TInterface> ctor = (Func<IDictionary<string, MethodInterceptorBase>, object[], TInterface>)lambda.Compile();
 
             return ctor(interceptorsMap, constructorArguments);
         }
 
-        private static IDictionary<string, MethodInterceptor> GetInterceptorsMap(Type type)
+        private static IDictionary<string, MethodInterceptorBase> GetInterceptorsMap(Type type)
         {
-            IDictionary<string, MethodInterceptor> interceptorsMap = new Dictionary<string, MethodInterceptor>();
+            IDictionary<string, MethodInterceptorBase> interceptorsMap = new Dictionary<string, MethodInterceptorBase>();
 
             foreach (MethodInfo methodInfo in type.GetMethods())
             {
-                object[] attributes = methodInfo.GetCustomAttributes(typeof(MethodInterceptor), false);
+                object[] attributes = methodInfo.GetCustomAttributes(typeof(MethodInterceptorBase), false);
                 if (attributes.Length > 0)
                 {
-                    interceptorsMap.Add(methodInfo.Name,(MethodInterceptor)attributes[0]);
+                    interceptorsMap.Add(methodInfo.Name, (MethodInterceptorBase)attributes[0]);
                 }
             }
 
@@ -94,7 +94,7 @@ namespace ConsoleApplication1
 
             NewExpression newExp = Expression.New(dynamicTypeRuntimeConstructorInfo, argsExp);
 
-            LambdaExpression lambda = Expression.Lambda(typeof(Func<IDictionary<string, MethodInterceptor>, object[], TInterface>), newExp, interceptorsMapParameter, args);
+            LambdaExpression lambda = Expression.Lambda(typeof(Func<IDictionary<string, MethodInterceptorBase>, object[], TInterface>), newExp, interceptorsMapParameter, args);
 
             return lambda;
         }
@@ -229,7 +229,7 @@ namespace ConsoleApplication1
 
     internal abstract class DynamicProxyTypeGenerator : TypeGenerator
     {
-        internal static readonly Type InterceptorsMapType = typeof(IDictionary<string, MethodInterceptor>);
+        internal static readonly Type InterceptorsMapType = typeof(IDictionary<string, MethodInterceptorBase>);
 
         public DynamicProxyTypeGenerator(string typeName, ModuleBuilder moduleBuilder)
             : base(typeName, moduleBuilder) { }
@@ -286,27 +286,23 @@ namespace ConsoleApplication1
             // define the interceptor map parameter as the first one in case we will need to support 'params' type that has to be last.
             constructorBuilder.DefineParameter(1, ParameterAttributes.None, "interceptorsMap");
 
-            ParameterInfo[] parameters = constructorInfo.GetParameters();
+            int firstParameterIndex = 2;
 
+            ParameterInfo[] parameters = constructorInfo.GetParameters();
+            
             foreach (ParameterInfo parameter in parameters)
             {
-                constructorBuilder.DefineParameter(parameter.Position + 2, parameter.Attributes, parameter.Name);
+                constructorBuilder.DefineParameter(parameter.Position + firstParameterIndex, parameter.Attributes, parameter.Name);
             }
 
             ILGenerator ilGenerator = constructorBuilder.GetILGenerator();
 
             TypeGenerator.AddEmptyObjectConstructorCall(ilGenerator);
 
-            NewExpression baseTypeConstructorCall = GetConstructorInvocationExpression(constructorInfo);
-
             ilGenerator.Emit(OpCodes.Ldarg_0);
 
-            for (int i = 1; i <= parameters.Length; i++)
-            {
-                ilGenerator.Emit(OpCodes.Ldarg, i + 1);
-            }
+            CreateInstanceOfOriginalClass(ilGenerator, constructorInfo, firstParameterIndex);
 
-            ilGenerator.Emit(OpCodes.Newobj, baseTypeConstructorCall.Constructor);
             ilGenerator.Emit(OpCodes.Stfld, originalInstanceField);
 
             StoreArgumentInClassField(ilGenerator, 1, interceptorMapField);
@@ -316,6 +312,17 @@ namespace ConsoleApplication1
             return constructorBuilder;
         }
 
+        private void CreateInstanceOfOriginalClass(ILGenerator ilGenerator, ConstructorInfo ctor, int firstArgumentIndex)
+        {
+            ParameterInfo[] parameters = ctor.GetParameters();
+
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                ilGenerator.Emit(OpCodes.Ldarg, i + firstArgumentIndex);
+            }
+
+            ilGenerator.Emit(OpCodes.Newobj, ctor);
+        }
 
         private void ImplementMethods(TypeBuilder typeBuilder, Type originalType, FieldInfo originalLocalTypeField, FieldInfo interceptorsMapField)
         {
@@ -328,7 +335,7 @@ namespace ConsoleApplication1
 
                 IList<CustomAttributeData> customAttributeData = method.GetCustomAttributesData();
 
-                bool hasCustomInterceptors = customAttributeData.Any<CustomAttributeData>(attributeData => attributeData.Constructor.DeclaringType == typeof(MethodInterceptor));
+                bool hasCustomInterceptors = customAttributeData.Any<CustomAttributeData>(attributeData => typeof(MethodInterceptorBase).IsAssignableFrom(attributeData.Constructor.DeclaringType));
 
                 if (hasCustomInterceptors)
                 {
@@ -353,7 +360,7 @@ namespace ConsoleApplication1
             IInterceptionStubImplementationTypeGenerator interceptionStubTypeGenerator = new IInterceptionStubImplementationTypeGenerator(method, originalLocalTypeField.FieldType, argumentContainerType, mModuleBuilder);
             Type interceptorStubType = interceptionStubTypeGenerator.Create();
 
-            MethodInfo interceptionMethod = typeof(MethodInterceptor).GetMethod("Intercept");
+            MethodInfo interceptionMethod = typeof(MethodInterceptorBase).GetMethod("Intercept");
 
             ILGenerator ilGenerator = methodBuilder.GetILGenerator();
 
@@ -365,7 +372,7 @@ namespace ConsoleApplication1
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Ldfld, interceptorsMapField);
             ilGenerator.Emit(OpCodes.Ldstr, method.Name);
-            ilGenerator.Emit(OpCodes.Callvirt, typeof(IDictionary<string, MethodInterceptor>).GetMethod("get_Item"));
+            ilGenerator.Emit(OpCodes.Callvirt, typeof(IDictionary<string, MethodInterceptorBase>).GetMethod("get_Item"));
 
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Ldfld, originalLocalTypeField);
@@ -379,19 +386,24 @@ namespace ConsoleApplication1
             ilGenerator.Emit(OpCodes.Ldloc, interceptorStubLocal);
             ilGenerator.Emit(OpCodes.Callvirt, interceptionMethod);
 
-            if (method.ReturnType != typeof(void))
-            {
-
-                ilGenerator.Emit(OpCodes.Ldloc, interceptorStubLocal);
-                ilGenerator.Emit(OpCodes.Callvirt, typeof(IInterceptionStub).GetMethod("get_ReturnValue"));
-                if (method.ReturnType.IsValueType)
-                {
-                    ilGenerator.Emit(OpCodes.Unbox_Any, method.ReturnType);
-                }
-            }
+            PutReturnedValueOnStack(ilGenerator, interceptorStubLocal, method.ReturnType);
 
             ilGenerator.Emit(OpCodes.Ret);
+        }
 
+        private void PutReturnedValueOnStack(ILGenerator ilGenerator, LocalBuilder interceptorStubLocalVariable, Type returnType)
+        {
+            if (returnType != typeof(void))
+            {
+                ilGenerator.Emit(OpCodes.Ldloc, interceptorStubLocalVariable);
+                
+                ilGenerator.Emit(OpCodes.Callvirt, typeof(IInterceptionStub).GetMethod("get_ReturnValue"));
+                
+                if (returnType.IsValueType)
+                {
+                    ilGenerator.Emit(OpCodes.Unbox_Any, returnType);
+                }
+            }
         }
 
         private void PackArgumentContainerToLocal(ILGenerator ilGenerator, LocalBuilder argumentContainerField, MethodInfo method)
@@ -412,7 +424,7 @@ namespace ConsoleApplication1
         private static void ImplementDirectMethodCall(TypeBuilder typeBuilder, FieldInfo originalLocalTypeField, MethodInfo method)
         {
             ParameterInfo[] parameters = method.GetParameters();
-            MethodBuilder methodBuilder = typeBuilder.DefineMethod(method.Name, method.Attributes, method.ReturnType, parameters.Select(x => x.ParameterType).ToArray());
+            MethodBuilder methodBuilder = typeBuilder.DefineMethod(method.Name, method.Attributes, method.ReturnType, GetArgumentsTypes(parameters));
             ILGenerator iLGenerator = methodBuilder.GetILGenerator();
 
             iLGenerator.Emit(OpCodes.Ldarg_0);
@@ -628,13 +640,13 @@ namespace ConsoleApplication1
             mName = name;
         }
 
-        [MethodInterceptor]
+        [MethodInterceptorA]
         public void SetAge(int age)
         {
             mAge = age;
         }
 
-        [MethodInterceptor]
+        [MethodInterceptorA]
         public int GetAge()
         {
             return mAge;
@@ -647,9 +659,14 @@ namespace ConsoleApplication1
     }
 
     [AttributeUsage(AttributeTargets.Method)]
-    public class MethodInterceptor : Attribute
+    public abstract class MethodInterceptorBase : Attribute
     {
-        public void Intercept(IInterceptionStub stub)
+        public abstract void Intercept(IInterceptionStub stub);
+    }
+    
+    public class MethodInterceptorA : MethodInterceptorBase
+    {
+        public override void Intercept(IInterceptionStub stub)
         {
             Console.WriteLine("Before method!!!");
             stub.Proceed();
