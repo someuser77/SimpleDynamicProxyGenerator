@@ -18,8 +18,13 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
     {
         private const string IMPLEMENTATION_INSTANCE_FIELD_NAME = "mOriginalInsatcne";
         private const string INTERCEPTOR_MAP_FIELD_NAME = "mInterceptorsMap";
-
+        private const string RETURN_VALUE_PROPERTY_NAME = "ReturnValue";
+        
         private Type[] mConstructorArguments;
+
+        private FieldInfo mOriginalInstanceField;
+
+        private FieldInfo mInterceptorsMapField;
 
         public DynamicProxyTypeGenerator(string typeName, ModuleBuilder moduleBuilder, Type[] constructorArguments)
             : base(typeName, moduleBuilder)
@@ -31,13 +36,13 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
         {
             TypeBuilder typeBuilder = mModuleBuilder.DefineType("Dynamic" + mTypeName, typeof(TImplementation).Attributes, null, new Type[] { typeof(TInterface) });
 
-            FieldInfo originalInstanceField = AddOriginalInstanceTypeField(typeBuilder, typeof(TImplementation));
+            mOriginalInstanceField = AddOriginalInstanceTypeField(typeBuilder, typeof(TImplementation));
 
-            FieldInfo interceptorsMapField = AddInterceptorMapField(typeBuilder);
+            mInterceptorsMapField = AddInterceptorMapField(typeBuilder);
 
-            ImplementMethods(typeBuilder, typeof(TImplementation), originalInstanceField, interceptorsMapField);
+            ImplementMethods(typeBuilder);
 
-            ConstructorInfo dynamicTypeConstructor = AddConstructor(typeBuilder, typeof(TImplementation), mConstructorArguments, originalInstanceField, interceptorsMapField);
+            ConstructorInfo dynamicTypeConstructor = AddConstructor(typeBuilder, typeof(TImplementation), mConstructorArguments, mOriginalInstanceField, mInterceptorsMapField);
 
             return typeBuilder.CreateType();
         }
@@ -103,11 +108,11 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
             ilGenerator.Emit(OpCodes.Newobj, ctor);
         }
 
-        private void ImplementMethods(TypeBuilder typeBuilder, Type originalType, FieldInfo originalLocalTypeField, FieldInfo interceptorsMapField)
+        private void ImplementMethods(TypeBuilder typeBuilder)
         {
-            foreach (MethodInfo method in originalType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+            foreach (MethodInfo method in typeof(TImplementation).GetMethods(BindingFlags.Public | BindingFlags.Instance))
             {
-                if (method.DeclaringType != originalType) continue;
+                if (method.DeclaringType != typeof(TImplementation)) continue;
 
                 // proceedMethod.GetCustomAttributes is avoided because it creates instances of the attributes and we only
                 // need to know their presence, there is no need to create them now.
@@ -118,19 +123,18 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
 
                 if (hasCustomInterceptors)
                 {
-                    ImplementRoutedMethodCall(typeBuilder, originalLocalTypeField, method, interceptorsMapField);
+                    ImplementRoutedMethodCall(typeBuilder, mOriginalInstanceField, method, mInterceptorsMapField);
                 }
                 else
                 {
-                    ImplementDirectMethodCall(typeBuilder, originalLocalTypeField, method);
+                    ImplementDirectMethodCall(typeBuilder, mOriginalInstanceField, method);
                 }
             }
         }
 
         private void ImplementRoutedMethodCall(TypeBuilder typeBuilder, FieldInfo originalLocalTypeField, MethodInfo method, FieldInfo interceptorsMapField)
         {
-            ParameterInfo[] methodParameters = method.GetParameters();
-            Type[] methodParameterTypes = Array.ConvertAll<ParameterInfo, Type>(methodParameters, p => p.ParameterType);
+            Type[] methodParameterTypes = GetArgumentsTypes(method);
 
             MethodBuilder methodBuilder = typeBuilder.DefineMethod(method.Name, method.Attributes, method.ReturnType, methodParameterTypes);
             ArgumentContainerTypeGenerator argumentContainerTypeGenerator = new ArgumentContainerTypeGenerator(mModuleBuilder, method);
@@ -148,21 +152,13 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
 
             PackArgumentContainerToLocal(ilGenerator, argumentContainerLocal, method);
 
-            ilGenerator.Emit(OpCodes.Ldarg_0);
-            ilGenerator.Emit(OpCodes.Ldfld, interceptorsMapField);
-            ilGenerator.Emit(OpCodes.Ldstr, method.Name);
-            ilGenerator.Emit(OpCodes.Callvirt, typeof(IDictionary<string, MethodInterceptorBase>).GetMethod("get_Item"));
+            GetMethodInterceptorInstanceFromMap(ilGenerator, method.Name);
 
-            ilGenerator.Emit(OpCodes.Ldarg_0);
-            ilGenerator.Emit(OpCodes.Ldfld, originalLocalTypeField);
-
-            ilGenerator.Emit(OpCodes.Ldloc, argumentContainerLocal);
-
-
-            ConstructorInfo interceptorStubTypeConstructor = interceptorStubType.GetConstructor(new Type[] { originalLocalTypeField.FieldType, argumentContainerType });
-            ilGenerator.Emit(OpCodes.Newobj, interceptorStubTypeConstructor);
+            GetMethodInterceptorStubInstance(ilGenerator, interceptorStubLocal, interceptorStubType, argumentContainerLocal);
+            
             ilGenerator.Emit(OpCodes.Stloc, interceptorStubLocal);
             ilGenerator.Emit(OpCodes.Ldloc, interceptorStubLocal);
+
             ilGenerator.Emit(OpCodes.Callvirt, interceptionMethod);
 
             PutReturnedValueOnStack(ilGenerator, interceptorStubLocal, method.ReturnType);
@@ -170,19 +166,42 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
             ilGenerator.Emit(OpCodes.Ret);
         }
 
-        private void PutReturnedValueOnStack(ILGenerator ilGenerator, LocalBuilder interceptorStubLocalVariable, Type returnType)
+        private void GetMethodInterceptorStubInstance(ILGenerator ilGenerator, LocalBuilder interceptorStubLocal, Type interceptorStubType, LocalBuilder argumentContainerLocal)
         {
-            if (returnType != typeof(void))
+            ilGenerator.Emit(OpCodes.Ldarg_0);
+            ilGenerator.Emit(OpCodes.Ldfld, mOriginalInstanceField);
+            ilGenerator.Emit(OpCodes.Ldloc, argumentContainerLocal);
+
+            ConstructorInfo interceptorStubTypeConstructor = interceptorStubType.GetConstructor(new Type[] { mOriginalInstanceField.FieldType, argumentContainerLocal.LocalType });
+            
+            ilGenerator.Emit(OpCodes.Newobj, interceptorStubTypeConstructor);
+        }
+
+        private void GetMethodInterceptorInstanceFromMap(ILGenerator ilGenerator, string methodName)
+        {
+            ilGenerator.Emit(OpCodes.Ldarg_0);
+            ilGenerator.Emit(OpCodes.Ldfld, mInterceptorsMapField);
+            ilGenerator.Emit(OpCodes.Ldstr, methodName);
+            ilGenerator.Emit(OpCodes.Callvirt, typeof(IDictionary<string, MethodInterceptorBase>).GetMethod("get_Item"));
+        }
+
+        private static void ImplementDirectMethodCall(TypeBuilder typeBuilder, FieldInfo originalLocalTypeField, MethodInfo method)
+        {
+            ParameterInfo[] parameters = method.GetParameters();
+            MethodBuilder methodBuilder = typeBuilder.DefineMethod(method.Name, method.Attributes, method.ReturnType, GetArgumentsTypes(parameters));
+            
+            ILGenerator iLGenerator = methodBuilder.GetILGenerator();
+
+            iLGenerator.Emit(OpCodes.Ldarg_0);
+            iLGenerator.Emit(OpCodes.Ldfld, originalLocalTypeField);
+
+            for (int i = 1; i <= parameters.Length; i++)
             {
-                ilGenerator.Emit(OpCodes.Ldloc, interceptorStubLocalVariable);
-
-                ilGenerator.Emit(OpCodes.Callvirt, typeof(IInterceptionStub).GetMethod("get_ReturnValue"));
-
-                if (returnType.IsValueType)
-                {
-                    ilGenerator.Emit(OpCodes.Unbox_Any, returnType);
-                }
+                iLGenerator.Emit(OpCodes.Ldarg, i);
             }
+
+            iLGenerator.Emit(OpCodes.Callvirt, method);
+            iLGenerator.Emit(OpCodes.Ret);
         }
 
         private void PackArgumentContainerToLocal(ILGenerator ilGenerator, LocalBuilder argumentContainerField, MethodInfo method)
@@ -200,22 +219,19 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
             }
         }
 
-        private static void ImplementDirectMethodCall(TypeBuilder typeBuilder, FieldInfo originalLocalTypeField, MethodInfo method)
+        private void PutReturnedValueOnStack(ILGenerator ilGenerator, LocalBuilder interceptorStubLocalVariable, Type returnType)
         {
-            ParameterInfo[] parameters = method.GetParameters();
-            MethodBuilder methodBuilder = typeBuilder.DefineMethod(method.Name, method.Attributes, method.ReturnType, GetArgumentsTypes(parameters));
-            ILGenerator iLGenerator = methodBuilder.GetILGenerator();
-
-            iLGenerator.Emit(OpCodes.Ldarg_0);
-            iLGenerator.Emit(OpCodes.Ldfld, originalLocalTypeField);
-
-            for (int i = 1; i <= parameters.Length; i++)
+            if (returnType != typeof(void))
             {
-                iLGenerator.Emit(OpCodes.Ldarg, i);
-            }
+                ilGenerator.Emit(OpCodes.Ldloc, interceptorStubLocalVariable);
 
-            iLGenerator.Emit(OpCodes.Callvirt, method);
-            iLGenerator.Emit(OpCodes.Ret);
+                ilGenerator.Emit(OpCodes.Callvirt, typeof(IInterceptionStub).GetMethod("get_" + RETURN_VALUE_PROPERTY_NAME));
+
+                if (returnType.IsValueType)
+                {
+                    ilGenerator.Emit(OpCodes.Unbox_Any, returnType);
+                }
+            }
         }
     }
 }
