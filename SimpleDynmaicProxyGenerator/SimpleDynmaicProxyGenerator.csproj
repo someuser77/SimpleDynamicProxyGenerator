@@ -8,7 +8,7 @@
     <ProjectGuid>{62A546B7-40F0-4EC6-9715-859D780C2A00}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>ConsoleApplication1</RootNamespace>
+    <RootNamespace>SimpleDynamicProxyGenerator</RootNamespace>
     <AssemblyName>SimpleDynmaicProxyGenerator</AssemblyName>
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
     <TargetFrameworkProfile>Client</TargetFrameworkProfile>

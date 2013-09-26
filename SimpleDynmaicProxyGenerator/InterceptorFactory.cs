@@ -1,11 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
-using ConsoleApplication1.TypeGenerators;
+using SimpleDynamicProxyGenerator.TypeGenerators;
 using System.Reflection;
 using System.Reflection.Emit;
 
-namespace ConsoleApplication1
+namespace SimpleDynamicProxyGenerator
 {
     public class InterceptorFactory
     {

@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection.Emit;
 using System.Reflection;
 
-namespace ConsoleApplication1.TypeGenerators
+namespace SimpleDynamicProxyGenerator.TypeGenerators
 {
     internal abstract class DynamicProxyTypeGenerator : TypeGenerator
     {

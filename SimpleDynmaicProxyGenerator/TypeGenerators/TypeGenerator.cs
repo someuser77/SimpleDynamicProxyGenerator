@@ -3,7 +3,7 @@ using System.Reflection.Emit;
 using System.Reflection;
 using System.Linq.Expressions;
 
-namespace ConsoleApplication1
+namespace SimpleDynamicProxyGenerator
 {
     internal abstract class TypeGenerator
     {

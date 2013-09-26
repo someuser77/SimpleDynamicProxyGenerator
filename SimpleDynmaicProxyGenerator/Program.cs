@@ -5,9 +5,9 @@ using System.Text;
 using System.Linq.Expressions;
 using System.Reflection.Emit;
 using System.Reflection;
-using ConsoleApplication1.TypeGenerators;
+using SimpleDynamicProxyGenerator.TypeGenerators;
 
-namespace ConsoleApplication1
+namespace SimpleDynamicProxyGenerator
 {
     class Program
     {

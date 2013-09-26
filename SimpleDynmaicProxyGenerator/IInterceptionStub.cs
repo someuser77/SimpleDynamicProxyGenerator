@@ -1,5 +1,5 @@
 ﻿
-namespace ConsoleApplication1
+namespace SimpleDynamicProxyGenerator
 {
     public interface IInterceptionStub
     {

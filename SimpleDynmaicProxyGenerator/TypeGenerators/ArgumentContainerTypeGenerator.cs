@@ -2,7 +2,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 
-namespace ConsoleApplication1.TypeGenerators
+namespace SimpleDynamicProxyGenerator.TypeGenerators
 {
     internal class ArgumentContainerTypeGenerator : TypeGenerator
     {
