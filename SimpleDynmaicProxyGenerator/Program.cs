@@ -38,6 +38,7 @@ namespace ConsoleApplication1
             TypeBuilder typeBuilder = ModuleBuilder.DefineType("Dynamic" + typeName, typeof(TImplementation).Attributes, null, new Type[] { typeof(TInterface) });
 
             FieldInfo originalInstanceField = AddOriginalInstanceTypeField(typeBuilder, typeof(TImplementation));
+
             FieldInfo interceptorsMapField = AddInterceptorMapField(typeBuilder);
 
             ImplementMethods(typeBuilder, typeof(TImplementation), originalInstanceField, interceptorsMapField);
@@ -167,7 +168,6 @@ namespace ConsoleApplication1
             ParameterInfo[] parametersInfo = constructorInfo.GetParameters();
 
             ParameterExpression[] parameters = new ParameterExpression[parametersInfo.Length];
-            Expression[] arguments = new Expression[parametersInfo.Length];
 
             for (int i = 0; i < parametersInfo.Length; i++)
             {
@@ -197,10 +197,15 @@ namespace ConsoleApplication1
             foreach (MethodInfo method in originalType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (method.DeclaringType != originalType) continue;
-                
-                object[] customAttributes = method.GetCustomAttributes(typeof(MethodInterceptor), false);
 
-                if (customAttributes.Length > 0)
+                // method.GetCustomAttributes is avoided because it creates instances of the attributes and we only
+                // need to know they presence, there is no need to create them now.
+
+                IList<CustomAttributeData> customAttributeData = method.GetCustomAttributesData();
+
+                bool hasCustomInterceptors = customAttributeData.Any<CustomAttributeData>(attributeData => attributeData.Constructor.DeclaringType == typeof(MethodInterceptor));
+
+                if (hasCustomInterceptors)
                 {
                     ImplementRoutedMethodCall(typeBuilder, originalLocalTypeField, method, interceptorsMapField);
                 }
@@ -524,7 +529,6 @@ namespace ConsoleApplication1
         {
             return AddProperty(typeBuilder, "returnValue", "ReturnValue", propertyType);
         }
-
     }
 
     public interface IPerson
