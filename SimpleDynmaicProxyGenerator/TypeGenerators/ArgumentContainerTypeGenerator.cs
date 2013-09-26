@@ -4,13 +4,17 @@ using System.Reflection.Emit;
 
 namespace SimpleDynamicProxyGenerator.TypeGenerators
 {
+    /// <summary>
+    /// Generates a dynamic type to hold the arguments for a method.
+    /// The dynamic type has a public field for each method parameter.
+    /// </summary>
     internal class ArgumentContainerTypeGenerator : TypeGenerator
     {
         private MethodBase mMethod;
 
-        public static string GetArgumentContainerTypeName(MethodBase method)
+        private static string GetArgumentContainerTypeName(MethodBase method)
         {
-            return method.DeclaringType.Name + method.Name + "ArgumentContainer";
+            return method.DeclaringType.FullName + "." + method.Name + "ArgumentContainer";
         }
 
         public ArgumentContainerTypeGenerator(ModuleBuilder moduleBuilder, MethodBase method)
@@ -21,7 +25,7 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
 
         public override Type Create()
         {
-            TypeBuilder typeBuilder = mModuleBuilder.DefineType(GetArgumentContainerTypeName(mMethod), TypeAttributes.Public | TypeAttributes.Class);
+            TypeBuilder typeBuilder = mModuleBuilder.DefineType(mTypeName, TypeAttributes.Public | TypeAttributes.Class);
 
             typeBuilder.DefineDefaultConstructor(MethodAttributes.Public);
 

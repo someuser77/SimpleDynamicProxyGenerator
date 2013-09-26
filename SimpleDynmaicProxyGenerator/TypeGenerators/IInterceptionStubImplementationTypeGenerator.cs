@@ -4,6 +4,10 @@ using System.Reflection.Emit;
 
 namespace SimpleDynamicProxyGenerator.TypeGenerators
 {
+    /// <summary>
+    /// Generates a dynamic type to implement the IInterceptionStub interface with a Proceed()
+    /// method to call the method on the underlying type.
+    /// </summary>
     internal class IInterceptionStubImplementationTypeGenerator : TypeGenerator
     {
         private MethodInfo mMethod;
