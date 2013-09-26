@@ -5,8 +5,8 @@ using System.Reflection.Emit;
 namespace SimpleDynamicProxyGenerator.TypeGenerators
 {
     /// <summary>
-    /// Generates a dynamic type to hold the arguments for a method.
-    /// The dynamic type has a public field for each method parameter.
+    /// Generates a dynamic type to hold the arguments for a proceedMethod.
+    /// The dynamic type has a public field for each proceedMethod parameter.
     /// </summary>
     internal class ArgumentContainerTypeGenerator : TypeGenerator
     {

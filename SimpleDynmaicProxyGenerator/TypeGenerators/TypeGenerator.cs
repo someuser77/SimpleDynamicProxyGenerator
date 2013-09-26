@@ -26,14 +26,14 @@ namespace SimpleDynamicProxyGenerator
             ilGenerator.Emit(OpCodes.Call, mObjectBaseConstructor);
         }
 
-        public class PropertyBuilders
+        public class BuiltProperty
         {
             public FieldBuilder BackingField { get; set; }
             public MethodBuilder Getter { get; set; }
             public MethodBuilder Setter { get; set; }
         }
 
-        protected PropertyBuilders AddProperty(TypeBuilder typeBuilder, string memberName, string propertyName, Type propertyType)
+        protected BuiltProperty AddProperty(TypeBuilder typeBuilder, string memberName, string propertyName, Type propertyType)
         {
             FieldBuilder field = typeBuilder.DefineField(memberName, propertyType, FieldAttributes.Private);
 
@@ -43,7 +43,7 @@ namespace SimpleDynamicProxyGenerator
 
             MethodBuilder setter = AddPropertySetter(typeBuilder, property, field);
 
-            return new PropertyBuilders { BackingField = field, Getter = getter, Setter = setter };
+            return new BuiltProperty { BackingField = field, Getter = getter, Setter = setter };
         }
 
         protected MethodBuilder AddPropertyGetter(TypeBuilder typeBuilder, PropertyBuilder property, FieldBuilder backingField)
@@ -115,7 +115,7 @@ namespace SimpleDynamicProxyGenerator
         /// Stores the argument in the given position in given class field.
         /// </summary>
         /// <param name="ilGenerator">The il generator.</param>
-        /// <param name="argumentPosition">The 1 based method argument position.</param>
+        /// <param name="argumentPosition">The 1 based proceedMethod argument position.</param>
         /// <param name="field">The field where the argument should be stored.</param>
         public void StoreArgumentInClassField(ILGenerator ilGenerator, int argumentPosition, FieldInfo field)
         {

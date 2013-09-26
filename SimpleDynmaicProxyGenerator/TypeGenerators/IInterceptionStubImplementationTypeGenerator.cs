@@ -6,13 +6,22 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
 {
     /// <summary>
     /// Generates a dynamic type to implement the IInterceptionStub interface with a Proceed()
-    /// method to call the method on the underlying type.
+    /// proceedMethod to call the proceedMethod on the underlying type.
     /// </summary>
     internal class IInterceptionStubImplementationTypeGenerator : TypeGenerator
     {
         private MethodInfo mMethod;
+
         private Type mArgumentContainerType;
         private Type mTargetInstanceType;
+
+        private TypeBuilder mTypeBuilder;
+
+        private FieldInfo mTargetInstance;
+        private FieldInfo mArgumentContainer;
+
+        const string RETURN_TYPE_PROPERTY_NAME = "ReturnValue";
+        const string INTERCEPTION_STUB_PROCEED_METHOD_NAME = "Proceed";
 
         public static string GetTypeName(MethodInfo method)
         {
@@ -29,67 +38,64 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
 
         public override Type Create()
         {
-            ILGenerator ilGenerator;
-            TypeBuilder typeBuilder = mModuleBuilder.DefineType(GetTypeName(mMethod), TypeAttributes.Public | TypeAttributes.AutoClass | TypeAttributes.AnsiClass | TypeAttributes.BeforeFieldInit, null, new Type[] { typeof(IInterceptionStub) });
+            mTypeBuilder = mModuleBuilder.DefineType(mTypeName, TypeAttributes.Public | TypeAttributes.AutoClass | TypeAttributes.AnsiClass | TypeAttributes.BeforeFieldInit, null, new Type[] { typeof(IInterceptionStub) });
 
-            FieldInfo targetInstance = typeBuilder.DefineField("mTargetInstance", mTargetInstanceType, FieldAttributes.Private);
-            FieldInfo argumentContainer = typeBuilder.DefineField("mArgumentContainer", mArgumentContainerType, FieldAttributes.Private);
+            mTargetInstance = mTypeBuilder.DefineField("mTargetInstance", mTargetInstanceType, FieldAttributes.Private);
+            
+            mArgumentContainer = mTypeBuilder.DefineField("mArgumentContainer", mArgumentContainerType, FieldAttributes.Private);
 
-            AddConstructor(typeBuilder, targetInstance, argumentContainer);
+            AddConstructor();
 
-            PropertyBuilders property = AddReturnTypeAutoImplementedProperty(typeBuilder, typeof(object));
-            FieldBuilder propertyBackingField = property.BackingField;
+            FieldBuilder propertyBackingField = AddReturnValueAutoImplementedProperty();
 
-            typeBuilder.DefineMethodOverride(property.Getter, typeof(IInterceptionStub).GetMethod("get_ReturnValue"));
-            typeBuilder.DefineMethodOverride(property.Setter, typeof(IInterceptionStub).GetMethod("set_ReturnValue"));
+            ImplementProceedMethod(propertyBackingField);
 
+            return mTypeBuilder.CreateType();
+        }
+
+        private void ImplementProceedMethod(FieldBuilder propertyBackingField)
+        {
             MethodAttributes methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual | MethodAttributes.Final;
-            MethodBuilder method = typeBuilder.DefineMethod("Proceed", methodAttributes, CallingConventions.Standard | CallingConventions.HasThis, null, Type.EmptyTypes);
+            CallingConventions callingConventions = CallingConventions.Standard | CallingConventions.HasThis;
 
-            typeBuilder.DefineMethodOverride(method, typeof(IInterceptionStub).GetMethod("Proceed"));
+            MethodBuilder proceedMethod = mTypeBuilder.DefineMethod(INTERCEPTION_STUB_PROCEED_METHOD_NAME, methodAttributes, callingConventions, null, Type.EmptyTypes);
 
-            ilGenerator = method.GetILGenerator();
+            mTypeBuilder.DefineMethodOverride(proceedMethod, typeof(IInterceptionStub).GetMethod(INTERCEPTION_STUB_PROCEED_METHOD_NAME));
+
+            ILGenerator ilGenerator = proceedMethod.GetILGenerator();
 
             LocalBuilder returnTypeLocalVariable = null;
+
             if (mMethod.ReturnType != typeof(void))
             {
                 returnTypeLocalVariable = ilGenerator.DeclareLocal(mMethod.ReturnType);
             }
 
             ilGenerator.Emit(OpCodes.Ldarg_0);
-            ilGenerator.Emit(OpCodes.Ldfld, targetInstance);
 
-            UnpackArgumentContainerFromField(ilGenerator, argumentContainer, mMethod);
+            ilGenerator.Emit(OpCodes.Ldfld, mTargetInstance);
+
+            UnpackArgumentContainerFromField(ilGenerator, mArgumentContainer, mMethod);
 
             ilGenerator.Emit(OpCodes.Callvirt, mMethod);
 
-            if (mMethod.ReturnType != typeof(void))
-            {
-                ilGenerator.Emit(OpCodes.Stloc, returnTypeLocalVariable);
-            }
+            SaveReturnValue(ilGenerator, returnTypeLocalVariable);
 
             ilGenerator.Emit(OpCodes.Ldarg_0);
 
-            if (mMethod.ReturnType == typeof(void))
-            {
-                ilGenerator.Emit(OpCodes.Ldnull);
-            }
-            else
-            {
-                ilGenerator.Emit(OpCodes.Ldloc, returnTypeLocalVariable);
-
-                if (mMethod.ReturnType.IsValueType)
-                {
-                    ilGenerator.Emit(OpCodes.Box, mMethod.ReturnType);
-                }
-            }
+            PrepareReturnValueForStorageInBackingField(ilGenerator, returnTypeLocalVariable);
 
             ilGenerator.Emit(OpCodes.Stfld, propertyBackingField);
 
             ilGenerator.Emit(OpCodes.Ret);
+        }
 
-            Type type = typeBuilder.CreateType();
-            return type;
+        private void SaveReturnValue(ILGenerator ilGenerator, LocalBuilder returnTypeLocalVariable)
+        {
+            if (mMethod.ReturnType != typeof(void))
+            {
+                ilGenerator.Emit(OpCodes.Stloc, returnTypeLocalVariable);
+            }
         }
 
         private void UnpackArgumentContainerFromField(ILGenerator ilGenerator, FieldInfo argumentContainerField, MethodInfo method)
@@ -103,21 +109,44 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
             }
         }
 
-        private void AddConstructor(TypeBuilder typeBuilder, FieldInfo targetInstance, FieldInfo argumentContainer)
+        private void AddConstructor()
         {
-            ConstructorBuilder constructorBuilder = typeBuilder.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, new Type[] { mTargetInstanceType, mArgumentContainerType });
+            ConstructorBuilder constructorBuilder = mTypeBuilder.DefineConstructor(MethodAttributes.Public, CallingConventions.HasThis, new Type[] { mTargetInstanceType, mArgumentContainerType });
             ILGenerator ilGenerator = constructorBuilder.GetILGenerator();
             TypeGenerator.AddEmptyObjectConstructorCall(ilGenerator);
 
-            StoreArgumentInClassField(ilGenerator, 1, targetInstance);
-            StoreArgumentInClassField(ilGenerator, 2, argumentContainer);
+            StoreArgumentInClassField(ilGenerator, 1, mTargetInstance);
+            StoreArgumentInClassField(ilGenerator, 2, mArgumentContainer);
 
             ilGenerator.Emit(OpCodes.Ret);
         }
 
-        private PropertyBuilders AddReturnTypeAutoImplementedProperty(TypeBuilder typeBuilder, Type propertyType)
+        private FieldBuilder AddReturnValueAutoImplementedProperty()
         {
-            return AddProperty(typeBuilder, "returnValue", "ReturnValue", propertyType);
+            BuiltProperty property = AddProperty(mTypeBuilder, "returnValue", RETURN_TYPE_PROPERTY_NAME, typeof(object));
+
+            mTypeBuilder.DefineMethodOverride(property.Getter, typeof(IInterceptionStub).GetMethod("get_" + RETURN_TYPE_PROPERTY_NAME));
+
+            mTypeBuilder.DefineMethodOverride(property.Setter, typeof(IInterceptionStub).GetMethod("set_" + RETURN_TYPE_PROPERTY_NAME));
+
+            return property.BackingField;
+        }
+
+        private void PrepareReturnValueForStorageInBackingField(ILGenerator ilGenerator, LocalBuilder returnTypeLocalVariable)
+        {
+            if (mMethod.ReturnType == typeof(void))
+            {
+                ilGenerator.Emit(OpCodes.Ldnull);
+            }
+            else
+            {
+                ilGenerator.Emit(OpCodes.Ldloc, returnTypeLocalVariable);
+
+                if (mMethod.ReturnType.IsValueType)
+                {
+                    ilGenerator.Emit(OpCodes.Box, mMethod.ReturnType);
+                }
+            }
         }
     }
 }

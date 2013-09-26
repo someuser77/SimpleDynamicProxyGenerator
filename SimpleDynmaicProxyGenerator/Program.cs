@@ -61,13 +61,13 @@ namespace SimpleDynamicProxyGenerator
     {
         public override void Intercept(IInterceptionStub stub)
         {
-            Console.WriteLine("Before method!!!");
+            Console.WriteLine("Before proceedMethod!!!");
             stub.Proceed();
             if (stub.ReturnValue != null)
             {
                 stub.ReturnValue = (int)stub.ReturnValue + 1;
             }
-            Console.WriteLine("After method!!!");
+            Console.WriteLine("After proceedMethod!!!");
         }
     }
 }

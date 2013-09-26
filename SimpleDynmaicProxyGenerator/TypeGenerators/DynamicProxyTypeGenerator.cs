@@ -109,7 +109,7 @@ namespace SimpleDynamicProxyGenerator.TypeGenerators
             {
                 if (method.DeclaringType != originalType) continue;
 
-                // method.GetCustomAttributes is avoided because it creates instances of the attributes and we only
+                // proceedMethod.GetCustomAttributes is avoided because it creates instances of the attributes and we only
                 // need to know their presence, there is no need to create them now.
 
                 IList<CustomAttributeData> customAttributeData = method.GetCustomAttributesData();
